@@ -10,13 +10,14 @@ const VIDSRC_BASE = "https://vidsrc.cc/v2/embed";
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function buildTmdbUrl(path, params = {}) {
-  const query = new URLSearchParams({
-    api_key: "8265bd1679663a7ea12ac168da84d2e8", // public TMDB key used by 1shows
-    ...params
-  });
+  let query = `api_key=8265bd1679663a7ea12ac168da84d2e8`;
+
+  for (const key in params) {
+    query += `&${key}=${encodeURIComponent(params[key])}`;
+  }
+
   return `${TMDB_API_BASE}${path}?${query}`;
 }
-
 function slugify(title) {
   return title
     .toLowerCase()
