@@ -11,7 +11,7 @@
   "quality": "1080p",
   "baseUrl": "https://www.1shows.nl/",
   "searchBaseUrl": "https://www.1shows.nl/",
-  "scriptUrl": "https://raw.githubusercontent.com/therichkid2/1shows-luna-Module/refs/heads/main/1shows.js",
+  "scriptUrl": "https://raw.githubusercontent.com/therichkid2/1shows-luna-Module/main/1shows.js",
   "type": "movies/shows",
   "asyncJS": true,
   "softsub": false,
