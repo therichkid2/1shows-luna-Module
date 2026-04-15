@@ -35,7 +35,6 @@ function slugify(title) {
 
 async function searchResults(query) {
   try {
-    const encodedQuery = encodeURIComponent(query);
 
     const [movieRes, tvRes] = await Promise.all([
       fetchv2(buildTmdbUrl("/search/movie", { query: encodedQuery, include_adult: false })),
