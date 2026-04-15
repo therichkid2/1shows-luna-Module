@@ -37,8 +37,8 @@ async function searchResults(query) {
   try {
 
     const [movieRes, tvRes] = await Promise.all([
-      fetchv2(buildTmdbUrl("/search/movie", { query: encodedQuery, include_adult: false })),
-      fetchv2(buildTmdbUrl("/search/tv",    { query: encodedQuery, include_adult: false }))
+      fetchv2(buildTmdbUrl("/search/movie", { query: Query, include_adult: false })),
+      fetchv2(buildTmdbUrl("/search/tv",    { query: Query, include_adult: false }))
     ]);
 
     const movieData = await movieRes.json();
