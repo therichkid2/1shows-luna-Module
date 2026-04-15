@@ -1,0 +1,23 @@
+{
+  "sourceName": "1Shows",
+  "iconUrl": "https://www.1shows.nl/favicon/povi-180.png",
+  "author": {
+    "name": "Custom",
+    "icon": "https://www.1shows.nl/favicon/povi-180.png"
+  },
+  "version": "1.0.0",
+  "language": "English",
+  "streamType": "embed",
+  "quality": "1080p",
+  "baseUrl": "https://www.1shows.nl/",
+  "searchBaseUrl": "https://www.1shows.nl/",
+  "scriptUrl": "YOUR_HOSTED_JS_URL_HERE",
+  "type": "movies/shows",
+  "asyncJS": true,
+  "softsub": false,
+  "downloadSupport": false,
+  "supportsSora": true,
+  "supportsLuna": true,
+  "supportsTsumi": true,
+  "supportsHiyoku": true
+}
