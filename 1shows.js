@@ -1,217 +1,153 @@
-// 1Shows Source Extension
-// Based on 1shows.nl — uses TMDB IDs for movies and TV shows
-// Stream delivery via vidsrc.cc embed API
-
 const BASE_URL = "https://www.1shows.nl";
-const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w300";
-const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const VIDSRC_BASE = "https://vidsrc.cc/v2/embed";
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function buildTmdbUrl(path, params = {}) {
-  let query = `api_key=8265bd1679663a7ea12ac168da84d2e8`;
-
-  for (const key in params) {
-    query += `&${key}=${encodeURIComponent(params[key])}`;
-  }
-
-  return `${TMDB_API_BASE}${path}?${query}`;
-}
-function slugify(title) {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .trim();
-}
-
-// ─── searchResults ───────────────────────────────────────────────────────────
-// Returns combined movie + TV results sorted by popularity.
-// href format:
-//   Movies: "1shows-movie:{tmdb_id}:{title}"
-//   TV:     "1shows-tv:{tmdb_id}:{title}"
+// ─── SEARCH ────────────────────────────────────────────────────────────────
 
 async function searchResults(query) {
   try {
+    const url = BASE_URL + "/search?q=" + encodeURIComponent(query);
 
-    const [movieRes, tvRes] = await Promise.all([
-      fetchv2(buildTmdbUrl("/search/movie", { query: Query, include_adult: false })),
-      fetchv2(buildTmdbUrl("/search/tv",    { query: Query, include_adult: false }))
-    ]);
+    const res = await fetchv2({
+      url: url,
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "text/html"
+      }
+    });
 
-    const movieData = await movieRes.json();
-    const tvData    = await tvRes.json();
+    const html = await res.text();
+    const results = [];
 
-    const movies = (movieData.results || []).map(item => ({
-      href:  `1shows-movie:${item.id}:${item.title || ""}`,
-      title: item.title || item.original_title || "Unknown",
-      image: item.poster_path
-        ? `${TMDB_IMAGE_BASE}${item.poster_path}`
-        : ""
-    }));
+    // Adjusted regex for 1shows layout
+    const regex = /href="\/(movie|tv)\/([^"]+)"[\s\S]*?<img[^>]+src="([^"]+)"[\s\S]*?alt="([^"]+)"/g;
 
-    const shows = (tvData.results || []).map(item => ({
-      href:  `1shows-tv:${item.id}:${item.name || ""}`,
-      title: item.name || item.original_name || "Unknown",
-      image: item.poster_path
-        ? `${TMDB_IMAGE_BASE}${item.poster_path}`
-        : ""
-    }));
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+      const type = match[1];
+      const slug = match[2];
+      const image = match[3];
+      const title = match[4];
 
-    // Interleave movies and TV — both sorted by TMDB popularity already
-    const combined = [];
-    const maxLen = Math.max(movies.length, shows.length);
-    for (let i = 0; i < maxLen; i++) {
-      if (i < shows.length)  combined.push(shows[i]);
-      if (i < movies.length) combined.push(movies[i]);
+      results.push({
+        href: `1shows-${type}:${slug}`,
+        title: title,
+        image: image.startsWith("http") ? image : BASE_URL + image
+      });
     }
 
-    if (combined.length === 0) {
+    if (results.length === 0) {
       return JSON.stringify([{ href: "", image: "", title: "No results found." }]);
     }
 
-    return JSON.stringify(combined);
+    return JSON.stringify(results);
+
   } catch (err) {
     return JSON.stringify([{ href: "", image: "", title: "Search failed: " + err.message }]);
   }
 }
 
-// ─── extractDetails ──────────────────────────────────────────────────────────
+// Required wrapper for some apps
+async function search(query) {
+  return await searchResults(query);
+}
+
+// ─── DETAILS ───────────────────────────────────────────────────────────────
 
 async function extractDetails(url) {
   try {
-    const [type, id] = url.split(":");
+    const [type, slug] = url.split(":");
+    const pageUrl = `${BASE_URL}/${type.replace("1shows-", "")}/${slug}`;
 
-    if (type === "1shows-movie") {
-      const res  = await fetchv2(buildTmdbUrl(`/movie/${id}`, { append_to_response: "credits" }));
-      const data = await res.json();
+    const res = await fetchv2({ url: pageUrl });
+    const html = await res.text();
 
-      const genres  = (data.genres  || []).map(g => g.name).join(", ") || "N/A";
-      const runtime = data.runtime ? `${data.runtime} min` : "N/A";
-      const rating  = data.vote_average ? data.vote_average.toFixed(1) : "N/A";
-      const year    = data.release_date ? data.release_date.slice(0, 4) : "N/A";
+    const descriptionMatch = html.match(/<p[^>]*class="[^"]*overview[^"]*"[^>]*>([^<]+)</);
+    const description = descriptionMatch ? descriptionMatch[1] : "No description available.";
 
-      return JSON.stringify([{
-        description: data.overview || "No description available.",
-        aliases:     `${year} | ${runtime} | ★ ${rating} | ${genres}`,
-        airdate:     data.release_date || "Unknown"
-      }]);
-    }
+    return JSON.stringify([{
+      description: description,
+      aliases: "",
+      airdate: ""
+    }]);
 
-    if (type === "1shows-tv") {
-      const res  = await fetchv2(buildTmdbUrl(`/tv/${id}`));
-      const data = await res.json();
-
-      const genres   = (data.genres || []).map(g => g.name).join(", ") || "N/A";
-      const seasons  = data.number_of_seasons  || "?";
-      const episodes = data.number_of_episodes || "?";
-      const rating   = data.vote_average ? data.vote_average.toFixed(1) : "N/A";
-      const year     = data.first_air_date ? data.first_air_date.slice(0, 4) : "N/A";
-
-      return JSON.stringify([{
-        description: data.overview || "No description available.",
-        aliases:     `${year} | ${seasons} Seasons / ${episodes} Episodes | ★ ${rating} | ${genres}`,
-        airdate:     data.first_air_date || "Unknown"
-      }]);
-    }
-
-    return JSON.stringify([{ description: "Unknown content type.", aliases: "", airdate: "" }]);
   } catch (err) {
-    return JSON.stringify([{ description: "Failed to load details: " + err.message, aliases: "", airdate: "" }]);
+    return JSON.stringify([{ description: "Failed to load details", aliases: "", airdate: "" }]);
   }
 }
 
-// ─── extractEpisodes ─────────────────────────────────────────────────────────
-// For movies: returns a single entry (the movie itself).
-// For TV:     returns one entry per episode, across all seasons.
+// ─── EPISODES ──────────────────────────────────────────────────────────────
 
 async function extractEpisodes(url) {
   try {
-    const [type, id, rawTitle] = url.split(":");
+    const [type, slug] = url.split(":");
 
+    // Movies = single entry
     if (type === "1shows-movie") {
       return JSON.stringify([{
         number: 1,
-        href:   `1shows-stream-movie:${id}`
+        href: `1shows-stream-movie:${slug}`
       }]);
     }
 
-    if (type === "1shows-tv") {
-      const res  = await fetchv2(buildTmdbUrl(`/tv/${id}`));
-      const data = await res.json();
+    // TV = scrape episodes
+    const pageUrl = `${BASE_URL}/tv/${slug}`;
+    const res = await fetchv2({ url: pageUrl });
+    const html = await res.text();
 
-      const seasons = (data.seasons || []).filter(s => s.season_number > 0);
+    const episodes = [];
 
-      const allEpisodes = [];
+    const regex = /data-season="(\d+)"\s+data-episode="(\d+)"/g;
 
-      for (const season of seasons) {
-        const sRes  = await fetchv2(buildTmdbUrl(`/tv/${id}/season/${season.season_number}`));
-        const sData = await sRes.json();
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+      const season = match[1];
+      const episode = match[2];
 
-        for (const ep of (sData.episodes || [])) {
-          allEpisodes.push({
-            number: parseFloat(`${season.season_number}.${String(ep.episode_number).padStart(3, "0")}`),
-            href:   `1shows-stream-tv:${id}:${season.season_number}:${ep.episode_number}`
-          });
-        }
-      }
-
-      return JSON.stringify(allEpisodes);
+      episodes.push({
+        number: parseFloat(`${season}.${episode.padStart(3, "0")}`),
+        href: `1shows-stream-tv:${slug}:${season}:${episode}`
+      });
     }
 
-    return JSON.stringify([{ number: 1, href: "Error: unknown type" }]);
+    return JSON.stringify(episodes);
+
   } catch (err) {
-    return JSON.stringify([{ number: 1, href: "Error: " + err.message }]);
+    return JSON.stringify([{ number: 1, href: "Error loading episodes" }]);
   }
 }
 
-// ─── extractStreamUrl ────────────────────────────────────────────────────────
-// Returns a vidsrc.cc embed URL as the stream.
-// vidsrc.cc supports HLS via its embed endpoint — no scraping needed.
+// ─── STREAMS ───────────────────────────────────────────────────────────────
 
 async function extractStreamUrl(url) {
   try {
     if (url.startsWith("1shows-stream-movie:")) {
-      const id = url.replace("1shows-stream-movie:", "").trim();
-
-      // vidsrc.cc movie embed
-      const embedUrl = `${VIDSRC_BASE}/movie/${id}`;
+      const slug = url.replace("1shows-stream-movie:", "");
 
       return JSON.stringify({
         streams: [
-          { title: "vidsrc.cc", streamUrl: embedUrl }
+          { title: "vidsrc.cc", streamUrl: `${VIDSRC_BASE}/movie/${slug}` }
         ],
         subtitles: ""
       });
     }
 
     if (url.startsWith("1shows-stream-tv:")) {
-      const parts   = url.split(":");
-      const id      = parts[1];
-      const season  = parts[2];
+      const parts = url.split(":");
+      const slug = parts[1];
+      const season = parts[2];
       const episode = parts[3];
-
-      // vidsrc.cc episode embed
-      const embedUrl = `${VIDSRC_BASE}/tv/${id}/${season}/${episode}`;
 
       return JSON.stringify({
         streams: [
-          { title: "vidsrc.cc", streamUrl: embedUrl }
+          { title: "vidsrc.cc", streamUrl: `${VIDSRC_BASE}/tv/${slug}/${season}/${episode}` }
         ],
         subtitles: ""
       });
     }
 
-    return JSON.stringify({
-      streams: [],
-      subtitles: ""
-    });
+    return JSON.stringify({ streams: [], subtitles: "" });
+
   } catch (err) {
-    return JSON.stringify({
-      streams: [],
-      subtitles: ""
-    });
+    return JSON.stringify({ streams: [], subtitles: "" });
   }
 }
